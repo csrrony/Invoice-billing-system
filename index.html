@@ -1,0 +1,2014 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Invoice & Billing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+
+    <style>
+        @import url('https://rsms.me/inter/inter.css');
+        html { font-family: 'Inter', sans-serif; }
+        body {
+            background-color: #0f172a; /* slate-900 */
+            color: #f8fafc; /* slate-50 */
+        }
+        .dark body {
+             background-color: #0f172a;
+             color: #f8fafc;
+        }
+        .light body {
+            background-color: #f1f5f9; /* slate-100 */
+            color: #0f172a; /* slate-900 */
+        }
+        /* Custom scrollbar for better dark mode aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b; /* slate-800 */
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569; /* slate-600 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b; /* slate-500 */
+        }
+        .chart-container {
+            position: relative;
+            margin: auto;
+            height: 300px;
+            width: 100%;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: flex-start; /* Align to the top */
+            justify-content: center;
+            z-index: 50;
+        }
+        .modal-content {
+            background-color: #1e293b; /* slate-800 */
+            padding: 2rem;
+            border-radius: 0.5rem;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid #334155; /* slate-700 */
+            margin-top: 10vh; /* Adjusted for better positioning below search bar */
+        }
+        /* Style for Action Icons */
+        .action-icon {
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        .action-icon:hover {
+            background-color: rgba(99, 102, 241, 0.1); /* Indigo hover effect */
+        }
+        /* Highlight animation */
+        @keyframes highlight {
+            0% { background-color: rgba(99, 102, 241, 0.5); box-shadow: 0 0 10px rgba(99, 102, 241, 0.8); }
+            100% { background-color: transparent; box-shadow: none; }
+        }
+        .highlight-row {
+            animation: highlight 3s ease-out forwards;
+        }
+    </style>
+    <script>
+        // Tailwind dark mode config
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                      sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, createContext, useContext, useRef } = React;
+        const { jsPDF } = window.jspdf;
+
+        // --- Mock Data Store ---
+        // This object simulates our backend database for the portfolio demo.
+        const mockDatabase = {
+            user: { _id: "user1", name: "Demo User", email: "demo@example.com" },
+            customers: [
+                { _id: "cust1", user: "user1", name: 'Creative Inc.', email: 'contact@creativeinc.com', phone: '555-0101', address: '123 Design St' },
+                { _id: "cust2", user: "user1", name: 'Tech Solutions Ltd.', email: 'support@techsolutions.com', phone: '555-0102', address: '456 Software Ave' },
+                { _id: "cust3", user: "user1", name: 'Global Marketing Agency', email: 'hello@globalmarketing.com', phone: '555-0103', address: '789 Commerce Blvd' },
+                { _id: "cust4", user: "user1", name: 'Innovate Startups', email: 'contact@innovatestartups.net', phone: '555-0104', address: '101 Incubator Lane' },
+                { _id: "cust5", user: "user1", name: 'Retail Chain Solutions', email: 'sales@retailchain.com', phone: '555-0105', address: '202 Logistics Way' },
+                { _id: "cust6", user: "user1", name: 'Healthcare Providers LLC', email: 'info@healthcare.org', phone: '555-0106', address: '303 Medical Park' },
+            ],
+            invoices: [
+                {
+                    _id: "inv1", user: "user1", customer: { _id: "cust1", name: 'Creative Inc.' }, invoiceNumber: 'INV-0001',
+                    issueDate: new Date('2025-09-15'), dueDate: new Date('2025-10-15'),
+                    items: [
+                        { description: 'Website Design', quantity: 1, price: 2500, tax: 10, discount: 100 },
+                        { description: 'Hosting (1 year)', quantity: 1, price: 300, tax: 10, discount: 0 },
+                    ],
+                    totalAmount: 2980, status: 'Paid',
+                },
+                {
+                    _id: "inv2", user: "user1", customer: { _id: "cust2", name: 'Tech Solutions Ltd.' }, invoiceNumber: 'INV-0002',
+                    issueDate: new Date('2025-09-20'), dueDate: new Date('2025-10-20'),
+                    items: [{ description: 'Mobile App Development', quantity: 1, price: 5000, tax: 15, discount: 0 }],
+                    totalAmount: 5750, status: 'Unpaid',
+                },
+                {
+                    _id: "inv3", user: "user1", customer: { _id: "cust1", name: 'Creative Inc.' }, invoiceNumber: 'INV-0003',
+                    issueDate: new Date('2025-08-01'), dueDate: new Date('2025-09-01'),
+                    items: [{ description: 'Logo Design', quantity: 1, price: 800, tax: 5, discount: 50 }],
+                    totalAmount: 790, status: 'Overdue',
+                },
+                {
+                    _id: "inv4", user: "user1", customer: { _id: "cust3", name: 'Global Marketing Agency' }, invoiceNumber: 'INV-0004',
+                    issueDate: new Date('2025-10-01'), dueDate: new Date('2025-11-01'),
+                    items: [{ description: 'Q4 Marketing Campaign', quantity: 1, price: 10000, tax: 20, discount: 500 }],
+                    totalAmount: 11500, status: 'Paid',
+                },
+                {
+                    _id: "inv5", user: "user1", customer: { _id: "cust4", name: 'Innovate Startups' }, invoiceNumber: 'INV-0005',
+                    issueDate: new Date('2025-09-25'), dueDate: new Date('2025-10-25'),
+                    items: [{ description: 'Cloud Infrastructure Setup', quantity: 1, price: 3500, tax: 10, discount: 0 }],
+                    totalAmount: 3850, status: 'Unpaid',
+                },
+            ],
+            // Mock users for registration simulation
+            mockUsers: [{ email: 'demo@example.com', password: 'password123', name: 'Demo User', _id: 'user1' }]
+        };
+        
+        // --- Mock API Helper ---
+        // This simulates network delay and API responses without a backend.
+        const mockApi = {
+            get: (url) => new Promise(resolve => {
+                setTimeout(() => {
+                    if (url === '/invoices/stats') {
+                        
+                        // --- STATS CALCULATION ---
+                        const totalSales = mockDatabase.invoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+                        const pendingPayments = mockDatabase.invoices.filter(inv => inv.status === 'Unpaid').reduce((sum, inv) => sum + inv.totalAmount, 0);
+                        const overdueCount = mockDatabase.invoices.filter(inv => inv.status === 'Overdue').length;
+                        const customerCount = mockDatabase.customers.length;
+                        
+                        // Calculate monthly sales (simplified)
+                        const monthlySalesMap = mockDatabase.invoices.reduce((acc, inv) => {
+                            const date = inv.issueDate instanceof Date ? inv.issueDate : new Date(inv.issueDate);
+                            const year = date.getFullYear();
+                            const month = date.getMonth() + 1; // 1-12
+                            const key = `${year}-${month}`;
+                            acc[key] = (acc[key] || 0) + inv.totalAmount;
+                            return acc;
+                        }, {});
+
+                        const monthlySales = Object.entries(monthlySalesMap).map(([key, total]) => {
+                            const [year, month] = key.split('-');
+                            return { _id: { year: parseInt(year), month: parseInt(month) }, total };
+                        }).sort((a, b) => (a._id.year * 12 + a._id.month) - (b._id.year * 12 + b._id.month));
+                        
+                        // Calculate payment status counts
+                        const paymentStatusMap = mockDatabase.invoices.reduce((acc, inv) => {
+                            acc[inv.status] = (acc[inv.status] || 0) + 1;
+                            return acc;
+                        }, {});
+                        const paymentStatus = Object.entries(paymentStatusMap).map(([status, count]) => ({ _id: status, count }));
+                        
+                        // Get 5 most recent invoices
+                        const recentInvoices = [...mockDatabase.invoices]
+                            .sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate))
+                            .slice(0, 5)
+                            .map(inv => ({
+                                _id: inv._id,
+                                invoiceNumber: inv.invoiceNumber,
+                                customerName: inv.customer.name,
+                                issueDate: inv.issueDate,
+                                totalAmount: inv.totalAmount,
+                                status: inv.status
+                            }));
+                        // --- END STATS CALCULATION ---
+
+                        resolve({ success: true, data: {
+                            totalSales, pendingPayments, overdueCount, customerCount,
+                            monthlySales, paymentStatus, recentInvoices
+                        }});
+                    } else if (url === '/invoices') {
+                        resolve({ success: true, data: mockDatabase.invoices, count: mockDatabase.invoices.length });
+                    } else if (url === '/customers') {
+                        resolve({ success: true, data: mockDatabase.customers, count: mockDatabase.customers.length });
+                    }
+                }, 500); // 500ms delay
+            }),
+            post: (url, data) => new Promise(resolve => {
+                 setTimeout(() => {
+                    if(url.includes('/invoices')){
+                        // Find the full customer object for better mock data consistency
+                        const customerObj = mockDatabase.customers.find(c => c._id === data.customer);
+                        
+                        const newInvoice = { 
+                            ...data, 
+                            _id: `inv${Date.now()}`, 
+                            invoiceNumber: `INV-000${mockDatabase.invoices.length + 1}`, 
+                            customer: { _id: customerObj._id, name: customerObj.name }, // Store essential customer data
+                            issueDate: new Date().toISOString().split('T')[0],
+                            // The totals should be calculated here as well, but we trust the form data for mock
+                        };
+                        mockDatabase.invoices.push(newInvoice);
+                        resolve({success: true, data: newInvoice});
+                    } else if (url.includes('/customers')) {
+                        const newCustomer = { 
+                            ...data, 
+                            _id: `cust${Date.now()}`, 
+                            user: mockDatabase.user._id,
+                        };
+                        mockDatabase.customers.push(newCustomer);
+                        resolve({success: true, data: newCustomer});
+                    }
+                 }, 500);
+            }),
+            put: (url, data) => new Promise(resolve => {
+                setTimeout(() => {
+                    if (url.includes('/invoices')) {
+                        const id = url.split('/')[2];
+                        const index = mockDatabase.invoices.findIndex(inv => inv._id === id);
+                        if (index !== -1) {
+                            const customerObj = mockDatabase.customers.find(c => c._id === data.customer);
+                            
+                             mockDatabase.invoices[index] = { 
+                                ...mockDatabase.invoices[index], 
+                                ...data, 
+                                customer: { _id: customerObj._id, name: customerObj.name } 
+                            };
+                             resolve({success: true, data: mockDatabase.invoices[index]});
+                        }
+                    } else if (url.includes('/customers')) {
+                        const id = url.split('/')[2];
+                        const index = mockDatabase.customers.findIndex(cust => cust._id === id);
+                        if (index !== -1) {
+                            mockDatabase.customers[index] = { ...mockDatabase.customers[index], ...data };
+                            resolve({success: true, data: mockDatabase.customers[index]});
+                        }
+                    }
+                }, 500);
+            }),
+            delete: (url) => new Promise(resolve => {
+                 setTimeout(() => {
+                    if (url.includes('/invoices')) {
+                        const id = url.split('/')[2];
+                        mockDatabase.invoices = mockDatabase.invoices.filter(inv => inv._id !== id);
+                    } else if (url.includes('/customers')) {
+                        const id = url.split('/')[2];
+                        mockDatabase.customers = mockDatabase.customers.filter(cust => cust._id !== id);
+                        // Also clean up invoices for this customer for consistency
+                        mockDatabase.invoices = mockDatabase.invoices.filter(inv => inv.customer._id !== id);
+                    }
+                    resolve({success: true, data: {}});
+                 }, 500);
+            }),
+        };
+        const api = mockApi; // Use the mock API for the demo
+
+        // --- Authentication Context ---
+        const AuthContext = createContext();
+
+        const AuthProvider = ({ children }) => {
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                // In a real app, you'd verify a token. For the demo, we check session storage.
+                const loggedIn = sessionStorage.getItem('loggedIn');
+                const storedUser = JSON.parse(sessionStorage.getItem('user'));
+                if (loggedIn && storedUser) {
+                    setIsAuthenticated(true);
+                    setUser(storedUser);
+                }
+                setLoading(false);
+            }, []);
+
+            const login = (email, password) => {
+                // Mock login check
+                const foundUser = mockDatabase.mockUsers.find(u => u.email === email && u.password === password);
+                if (foundUser) {
+                    sessionStorage.setItem('loggedIn', 'true');
+                    sessionStorage.setItem('user', JSON.stringify(foundUser));
+                    setIsAuthenticated(true);
+                    setUser(foundUser);
+                    // Update the primary mockDatabase.user for the app flow
+                    mockDatabase.user = foundUser; 
+                    return { success: true };
+                }
+                return { success: false, error: 'Invalid email or password' };
+            };
+            
+            // New register function
+            const register = (name, email, password) => {
+                if (mockDatabase.mockUsers.some(u => u.email === email)) {
+                    return { success: false, error: 'User with this email already exists.' };
+                };
+
+                // Simulate new user creation
+                const newUser = { 
+                    _id: `user${Date.now()}`, 
+                    name: name, 
+                    email: email, 
+                    password: password // In real app, this would be hashed
+                };
+                mockDatabase.mockUsers.push(newUser);
+                
+                // Automatically log the user in after registration
+                sessionStorage.setItem('loggedIn', 'true');
+                sessionStorage.setItem('user', JSON.stringify(newUser));
+                setIsAuthenticated(true);
+                setUser(newUser);
+                mockDatabase.user = newUser;
+
+                return { success: true };
+            };
+
+
+            const logout = () => {
+                sessionStorage.removeItem('loggedIn');
+                sessionStorage.removeItem('user');
+                setIsAuthenticated(false);
+                setUser(null);
+            };
+
+            const value = { user, login, register, logout, isAuthenticated };
+
+            return (
+                <AuthContext.Provider value={value}>
+                    {!loading && children}
+                </AuthContext.Provider>
+            );
+        };
+
+        const useAuth = () => useContext(AuthContext);
+
+        // --- Helper Components ---
+        const Spinner = () => (
+            <div className="flex justify-center items-center h-full">
+                <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-500"></div>
+            </div>
+        );
+        
+        const Modal = ({ show, onClose, title, children }) => {
+            if (!show) return null;
+
+            return (
+                <div className="modal-backdrop" onClick={onClose}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center mb-4">
+                            {/* FIX: Simplified title in SearchModal will now show here */}
+                            <h3 className="text-xl font-bold text-slate-100">{title}</h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-100 text-2xl font-bold">&times;</button>
+                        </div>
+                        {children}
+                    </div>
+                </div>
+            );
+        };
+
+        const getStatusColor = (status) => {
+            switch(status) {
+                case 'Paid': return 'bg-green-500/20 text-green-400';
+                case 'Unpaid': return 'bg-yellow-500/20 text-yellow-400';
+                case 'Overdue': return 'bg-red-500/20 text-red-400';
+                default: return 'bg-slate-500/20 text-slate-400';
+            }
+        };
+
+        // --- Component: SearchModal (UPDATED) ---
+        const SearchModal = ({ show, onClose, searchQuery, setActiveView, setHighlightedId }) => {
+            const [searchResults, setSearchResults] = useState([]);
+
+            useEffect(() => {
+                if (!searchQuery) {
+                    setSearchResults([]);
+                    return;
+                }
+
+                const query = searchQuery.toLowerCase();
+                
+                // 1. Search Invoices
+                const invoiceResults = mockDatabase.invoices
+                    .filter(inv => 
+                        inv.invoiceNumber.toLowerCase().includes(query) ||
+                        inv.customer.name.toLowerCase().includes(query)
+                    )
+                    .map(inv => ({
+                        id: inv._id,
+                        type: 'Invoice',
+                        title: `${inv.invoiceNumber} - ${inv.customer.name}`,
+                        status: inv.status,
+                        amount: inv.totalAmount
+                    }));
+
+                // 2. Search Customers
+                const customerResults = mockDatabase.customers
+                    .filter(cust => 
+                        cust.name.toLowerCase().includes(query) ||
+                        cust.email.toLowerCase().includes(query)
+                    )
+                    .map(cust => ({
+                        id: cust._id,
+                        type: 'Customer',
+                        title: cust.name,
+                        email: cust.email
+                    }));
+
+                setSearchResults([...invoiceResults, ...customerResults]);
+            }, [searchQuery]);
+
+            const handleResultClick = (result) => {
+                onClose();
+                setHighlightedId(result.id); // NEW: Set the ID to highlight
+                
+                if (result.type === 'Invoice') {
+                    // alert(`Navigating to specific Invoice: ${result.title}. (In a real app, this would route to the invoice detail page with ID: ${result.id})`);
+                    setActiveView('invoices'); 
+                } else if (result.type === 'Customer') {
+                    // alert(`Navigating to specific Customer: ${result.title}. (In a real app, this would route to the customer detail page with ID: ${result.id})`);
+                    setActiveView('clients');
+                }
+                
+                // NEW: Clear the highlight after a short delay for visual effect
+                setTimeout(() => setHighlightedId(null), 3000); 
+            };
+            
+            if (!show) return null;
+
+            return (
+                 <Modal show={show} onClose={onClose} title={`Search Results`}>
+                    
+                    {/* NEW: Display the current search query in a styled bar */}
+                    <div className="mb-4 p-2 pl-4 flex items-center bg-slate-700 border border-indigo-500 rounded-lg text-slate-100">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <span className="font-semibold">{searchQuery}</span>
+                    </div>
+                    {/* END NEW */}
+                    
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                        {searchResults.length === 0 && searchQuery ? (
+                            <p className="text-slate-400">No results found for "{searchQuery}".</p>
+                        ) : (
+                            searchResults.map((result, index) => (
+                                <div 
+                                    key={index}
+                                    onClick={() => handleResultClick(result)}
+                                    className="p-3 bg-slate-700 hover:bg-slate-600 rounded-md cursor-pointer transition-colors border border-slate-600"
+                                >
+                                    <div className="flex justify-between items-center">
+                                        <p className="font-bold text-slate-100">{result.title}</p>
+                                        <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded ${result.type === 'Invoice' ? getStatusColor(result.status) : 'bg-indigo-500/20 text-indigo-400'}`}>
+                                            {result.type}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-slate-400">
+                                        {result.type === 'Invoice' ? 
+                                            `Total: $${result.amount.toFixed(2)} | Status: ${result.status}` : 
+                                            `Email: ${result.email || result.title}`
+                                        }
+                                    </p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </Modal>
+            );
+        };
+        // --- END Component: SearchModal ---
+
+        // --- Chart Components ---
+        const MonthlySalesChart = ({ data }) => {
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            useEffect(() => {
+                if (chartRef.current && data) {
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+                    const ctx = chartRef.current.getContext('2d');
+                    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                    
+                    const labels = data.map(d => `${monthNames[d._id.month - 1]} ${d._id.year}`);
+                    const values = data.map(d => d.total);
+
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Monthly Sales',
+                                data: values,
+                                fill: true,
+                                borderColor: 'rgb(99, 102, 241)',
+                                tension: 0.1,
+                                backgroundColor: 'rgba(99, 102, 241, 0.2)'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { ticks: { color: '#94a3b8' } },
+                                y: { ticks: { color: '#94a3b8' } }
+                            }
+                        }
+                    });
+                }
+            }, [data]);
+
+            return <div className="chart-container"><canvas ref={chartRef}></canvas></div>;
+        };
+
+        const PaymentStatusChart = ({ data }) => {
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            useEffect(() => {
+                if (chartRef.current && data) {
+                     if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+                    const ctx = chartRef.current.getContext('2d');
+                    const labels = data.map(d => d._id);
+                    const values = data.map(d => d.count);
+                    
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Payment Status',
+                                data: values,
+                                backgroundColor: [
+                                    'rgb(34, 197, 94)', // green-500 (Paid)
+                                    'rgb(234, 179, 8)', // yellow-500 (Unpaid)
+                                    'rgb(239, 68, 68)'  // red-500 (Overdue)
+                                ],
+                                hoverOffset: 4
+                            }]
+                        },
+                         options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { 
+                                legend: { 
+                                    position: 'bottom',
+                                    labels: { color: '#94a3b8' }
+                                } 
+                            }
+                        }
+                    });
+                }
+            }, [data]);
+
+            return <div className="chart-container"><canvas ref={chartRef}></canvas></div>;
+        };
+
+        // --- Component: Recent Invoices Table ---
+        const RecentInvoicesTable = ({ invoices, title }) => { // Updated to accept title
+            if (!invoices || invoices.length === 0) {
+                 return (
+                    <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                        <h3 className="text-lg font-semibold mb-4 text-slate-200">{title}</h3>
+                        <p className="text-slate-400">No {title.toLowerCase()} found.</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 className="text-lg font-semibold mb-4 text-slate-200">{title}</h3>
+                    {/* Added overflow-x-auto for mobile table scrolling */}
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-700">
+                            <thead className="bg-slate-900/50">
+                                <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Invoice #</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Customer</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Amount</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {invoices.map((inv) => (
+                                    <tr key={inv._id} className="hover:bg-slate-700/50 transition-colors">
+                                        <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-slate-200">{inv.invoiceNumber}</td>
+                                        <td className="px-3 py-2 text-sm text-slate-300 max-w-[150px]">{inv.customerName}</td>
+                                        <td className="px-3 py-2 whitespace-nowrap text-sm text-slate-300">${inv.totalAmount.toFixed(2)}</td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(inv.status)}`}>
+                                                {inv.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+        // --- END Component ---
+
+        // --- Main Components ---
+        const Dashboard = () => {
+            const [stats, setStats] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const fetchStats = async () => {
+                    setLoading(true);
+                    try {
+                        const data = await api.get('/invoices/stats');
+                        setStats(data.data);
+                    } catch (error) {
+                        console.error("Error fetching stats:", error);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                fetchStats();
+            }, []);
+            
+            if (loading) return <Spinner />;
+            
+            return (
+                <div className="p-4 sm:p-6 space-y-6 fade-in">
+                    <h1 className="text-3xl font-bold text-slate-100 lg:mt-0">Dashboard</h1>
+                    
+                    {/* Stats Cards (2 columns on mobile, 4 on medium screens) */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                        <div className="bg-slate-800 p-4 sm:p-6 rounded-lg border border-slate-700">
+                            <h3 className="text-slate-400 text-sm">Total Sales</h3>
+                            <p className="text-2xl font-bold text-green-400">${stats?.totalSales?.toFixed(2) || '0.00'}</p>
+                        </div>
+                        <div className="bg-slate-800 p-4 sm:p-6 rounded-lg border border-slate-700">
+                            <h3 className="text-slate-400 text-sm">Pending Payments</h3>
+                            <p className="text-2xl font-bold text-yellow-400">${stats?.pendingPayments?.toFixed(2) || '0.00'}</p>
+                        </div>
+                        <div className="bg-slate-800 p-4 sm:p-6 rounded-lg border border-slate-700">
+                            <h3 className="text-slate-400 text-sm">Overdue Invoices</h3>
+                            <p className="text-2xl font-bold text-red-400">{stats?.overdueCount || 0}</p>
+                        </div>
+                        <div className="bg-slate-800 p-4 sm:p-6 rounded-lg border border-slate-700">
+                            <h3 className="text-slate-400 text-sm">Total Customers</h3>
+                            <p className="text-2xl font-bold text-indigo-400">{stats?.customerCount || 0}</p>
+                        </div>
+                    </div>
+
+                    {/* Charts (1 column on mobile, 2 on large screens) */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                             <h3 className="sm:text-xl md:text-2xl font-semibold mb-4 text-slate-200">Monthly Sales</h3>
+                             <MonthlySalesChart data={stats?.monthlySales} />
+                        </div>
+                        <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                             <h3 className="sm:text-xl md:text-2xl font-semibold mb-4 text-slate-200">Payment Status</h3>
+                             <PaymentStatusChart data={stats?.paymentStatus} />
+                        </div>
+                    </div>
+                    
+                    {/* Updated to use unfiltered results and static title */}
+                    <RecentInvoicesTable 
+                        invoices={stats?.recentInvoices} 
+                        title={'Recent Invoices'} 
+                    />
+                </div>
+            );
+        };
+        
+        // --- Invoice PDF and Item Calculation Logic (Shared) ---
+        const calculateInvoiceTotals = (items) => {
+             let subTotal = 0;
+             let totalTax = 0;
+             let totalDiscount = 0;
+             items.forEach(item => {
+                 const quantity = parseFloat(item.quantity) || 0;
+                 const price = parseFloat(item.price) || 0;
+                 const tax = parseFloat(item.tax) || 0;
+                 const discount = parseFloat(item.discount) || 0;
+                 
+                 const itemTotal = quantity * price;
+                 subTotal += itemTotal;
+                 totalTax += itemTotal * (tax / 100);
+                 totalDiscount += discount;
+             });
+             const totalAmount = subTotal + totalTax - totalDiscount;
+             return { subTotal, totalTax, totalDiscount, totalAmount };
+        };
+
+        const downloadPDF = (invoiceData, customers) => {
+            const doc = new jsPDF();
+            const selectedCustomer = customers.find(c => c._id === invoiceData.customer._id) || { name: invoiceData.customer.name, email: 'N/A' };
+            const { subTotal, totalTax, totalDiscount, totalAmount } = calculateInvoiceTotals(invoiceData.items);
+            
+            doc.setFontSize(22);
+            doc.text("INVOICE", 15, 20);
+
+            doc.setFontSize(12);
+            doc.text(`Invoice #: ${invoiceData.invoiceNumber || 'N/A'}`, 15, 30);
+            doc.text(`Issue Date: ${new Date(invoiceData.issueDate || new Date()).toLocaleDateString()}`, 15, 35);
+            doc.text(`Due Date: ${new Date(invoiceData.dueDate).toLocaleDateString()}`, 15, 40);
+
+            doc.setFontSize(12);
+            doc.text("Bill To:", 15, 55);
+            doc.text(selectedCustomer.name, 15, 60);
+            doc.text(selectedCustomer.email, 15, 65);
+            
+            const tableColumn = ["Description", "Qty", "Price", "Tax %", "Discount", "Total"];
+            const tableRows = [];
+
+            invoiceData.items.forEach(item => {
+                const itemSubTotal = (item.quantity * item.price);
+                const itemTax = itemSubTotal * (item.tax / 100);
+                const itemTotal = itemSubTotal + itemTax - item.discount;
+
+                const invoiceItem = [
+                    item.description,
+                    item.quantity,
+                    `$${Number(item.price).toFixed(2)}`,
+                    `${item.tax}%`,
+                    `$${Number(item.discount).toFixed(2)}`,
+                    `$${itemTotal.toFixed(2)}`
+                ];
+                tableRows.push(invoiceItem);
+            });
+            
+            doc.autoTable({
+                head: [tableColumn],
+                body: tableRows,
+                startY: 75,
+            });
+            
+            const finalY = doc.previousAutoTable.finalY;
+            doc.setFontSize(12);
+            doc.text(`Subtotal: $${subTotal.toFixed(2)}`, 150, finalY + 10);
+            doc.text(`Tax: $${totalTax.toFixed(2)}`, 150, finalY + 17);
+            doc.text(`Discount: -$${totalDiscount.toFixed(2)}`, 150, finalY + 24);
+            doc.setFontSize(14);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`Total: $${totalAmount.toFixed(2)}`, 150, finalY + 31);
+
+            doc.save(`${invoiceData.invoiceNumber || 'invoice'}.pdf`);
+        };
+        // --- End of Invoice PDF and Item Calculation Logic ---
+
+
+        const Invoices = ({ highlightedId }) => {
+            const [invoices, setInvoices] = useState([]);
+            const [customers, setCustomers] = useState([]); // State to hold customers for PDF generation
+            const [loading, setLoading] = useState(true);
+            const [showForm, setShowForm] = useState(false);
+            const [editingInvoice, setEditingInvoice] = useState(null);
+            
+            // Effect to scroll to and highlight the row
+            useEffect(() => {
+                if (highlightedId) {
+                    const row = document.getElementById(`invoice-${highlightedId}`);
+                    if (row) {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            }, [highlightedId, invoices]);
+
+
+            const fetchInvoices = async () => {
+                setLoading(true);
+                try {
+                    const [invoiceResponse, customerResponse] = await Promise.all([
+                        api.get('/invoices'), 
+                        api.get('/customers')
+                    ]);
+                    setInvoices(invoiceResponse.data.map(inv => ({
+                        ...inv, 
+                        // Ensure dates are Date objects for reliable sorting/display if needed
+                        issueDate: new Date(inv.issueDate), 
+                        dueDate: new Date(inv.dueDate)
+                    })));
+                    setCustomers(customerResponse.data);
+                } catch (error) {
+                    console.error("Error fetching data:", error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                fetchInvoices();
+            }, []);
+            
+            const handleEdit = (invoice) => {
+                setEditingInvoice(invoice);
+                setShowForm(true);
+            };
+
+            const handleDelete = async (id) => {
+                if (window.confirm('Are you sure you want to delete this invoice?')) {
+                    try {
+                        await api.delete(`/invoices/${id}`);
+                        fetchInvoices();
+                    } catch (error) {
+                        console.error("Failed to delete invoice", error);
+                    }
+                }
+            };
+
+            const handleMail = (invoice) => {
+                // Mock implementation for sending email
+                const customer = customers.find(c => c._id === invoice.customer._id);
+                alert(`MOCK: Invoice ${invoice.invoiceNumber} sent successfully to ${customer?.email || 'customer'}.`);
+            };
+
+            const handleDownload = (invoice) => {
+                downloadPDF(invoice, customers);
+            }
+            
+            const handleFormClose = () => {
+                setShowForm(false);
+                setEditingInvoice(null);
+                fetchInvoices();
+            };
+            
+            if (loading) return <Spinner />;
+
+            return (
+                <div className="p-4 sm:p-6 fade-in">
+                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                        <h1 className="text-3xl font-bold text-slate-100 mb-4 sm:mb-0">Invoices</h1>
+                        <button 
+                            onClick={() => { setEditingInvoice(null); setShowForm(true); }}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors w-full sm:w-auto"
+                        >
+                            Create Invoice
+                        </button>
+                    </div>
+
+                    <InvoiceForm 
+                        show={showForm} 
+                        onClose={handleFormClose} 
+                        invoice={editingInvoice} 
+                        customers={customers}
+                    />
+
+                    <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-700">
+                            <thead className="bg-slate-900/50">
+                                <tr>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Invoice #</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Customer</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Due Date</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Amount</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Status</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {invoices.map(invoice => (
+                                    <tr 
+                                        key={invoice._id} 
+                                        id={`invoice-${invoice._id}`} 
+                                        className={`hover:bg-slate-700/50 transition-colors ${ 
+                                            invoice._id === highlightedId ? 'highlight-row bg-indigo-700/50' : '' 
+                                        }`}
+                                    >
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap text-sm font-medium text-slate-200">{invoice.invoiceNumber}</td>
+                                        <td className="px-3 py-2 md:px-6 md:py-4 text-sm text-slate-300 max-w-[120px] overflow-hidden truncate">{invoice.customer?.name}</td>
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap text-sm text-slate-300">{new Date(invoice.dueDate).toLocaleDateString()}</td>
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap text-sm text-slate-300">${invoice.totalAmount.toFixed(2)}</td>
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap">
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
+                                                {invoice.status}
+                                            </span>
+                                        </td>
+                                        {/* Actions Column Implementation */}
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap text-center text-sm font-medium">
+                                            <div className="flex items-center justify-center space-x-1 sm:space-x-2">
+                                                {/* Download Icon (PDF) */}
+                                                <button onClick={() => handleDownload(invoice)} title="Download PDF" className="text-indigo-400 hover:text-indigo-300 action-icon">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                    </svg>
+                                                </button>
+                                                {/* Edit Icon */}
+                                                <button onClick={() => handleEdit(invoice)} title="Edit Invoice" className="text-yellow-400 hover:text-yellow-300 action-icon">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2-2m-4 0l-4 4m6-6l4 4m-4-4l-4 4" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                    </svg>
+                                                </button>
+                                                {/* Mail Icon (Mock) */}
+                                                <button onClick={() => handleMail(invoice)} title="Send via Email (Mock)" className="text-blue-400 hover:text-blue-300 action-icon">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                    </svg>
+                                                </button>
+                                                {/* Delete Icon */}
+                                                <button onClick={() => handleDelete(invoice._id)} title="Delete Invoice" className="text-red-400 hover:text-red-300 action-icon">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                        {/* End Actions Column */}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+        
+        // --- Invoice Form Component ---
+        const InvoiceForm = ({ show, onClose, invoice, customers }) => {
+            const [formData, setFormData] = useState({ 
+                customer: '', 
+                dueDate: '', 
+                items: [{ description: '', quantity: 1, price: 0, tax: 0, discount: 0 }], 
+                status: 'Unpaid', 
+                notes: '', 
+                issueDate: new Date().toISOString().split('T')[0] // Default issue date to today
+            });
+            
+            useEffect(() => {
+                if (invoice) {
+                    setFormData({
+                        customer: invoice.customer._id,
+                        dueDate: new Date(invoice.dueDate).toISOString().split('T')[0],
+                        items: invoice.items,
+                        status: invoice.status,
+                        notes: invoice.notes || '',
+                        issueDate: new Date(invoice.issueDate || new Date()).toISOString().split('T')[0],
+                    });
+                } else {
+                    setFormData({
+                        customer: customers[0]?._id || '', // Default to first customer or empty
+                        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default due date 30 days out
+                        items: [{ description: '', quantity: 1, price: 0, tax: 0, discount: 0 }],
+                        status: 'Unpaid',
+                        notes: '',
+                        issueDate: new Date().toISOString().split('T')[0],
+                    });
+                }
+            }, [invoice, show, customers]);
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleItemChange = (index, e) => {
+                const { name, value } = e.target;
+                const newItems = [...formData.items];
+                // Convert value to number if it's a numeric field
+                const numericValue = ['quantity', 'price', 'tax', 'discount'].includes(name) ? parseFloat(value) || 0 : value;
+                newItems[index][name] = numericValue;
+                setFormData(prev => ({ ...prev, items: newItems }));
+            };
+
+            const addItem = () => {
+                setFormData(prev => ({ 
+                    ...prev, 
+                    items: [...prev.items, { description: '', quantity: 1, price: 0, tax: 0, discount: 0 }] 
+                }));
+            };
+
+            const removeItem = (index) => {
+                if (formData.items.length <= 1) return; // Must have at least one item
+                const newItems = formData.items.filter((_, i) => i !== index);
+                setFormData(prev => ({ ...prev, items: newItems }));
+            };
+
+            const { subTotal, totalTax, totalDiscount, totalAmount } = calculateInvoiceTotals(formData.items);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                
+                if (!formData.customer) {
+                    alert("Please select a customer.");
+                    return;
+                }
+
+                const submissionData = { 
+                    ...formData, 
+                    ...calculateInvoiceTotals(formData.items), // Recalculate totals for consistency
+                };
+
+                try {
+                    if (invoice) {
+                        await api.put(`/invoices/${invoice._id}`, submissionData);
+                    } else {
+                        await api.post('/invoices', submissionData);
+                    }
+                    onClose();
+                } catch(error) {
+                    console.error("Failed to save invoice", error);
+                    alert(`Error: Failed to save invoice.`);
+                }
+            };
+            
+            const handleDownloadPDF = () => {
+                if (!formData.customer) {
+                    alert("Please select a customer before generating a PDF draft.");
+                    return;
+                }
+                const customerObj = customers.find(c => c._id === formData.customer);
+                const mockInvoiceForPDF = {
+                    ...formData, 
+                    customer: { _id: formData.customer, name: customerObj?.name || 'Unknown Customer' },
+                    invoiceNumber: invoice?.invoiceNumber || 'DRAFT',
+                    totalAmount: totalAmount,
+                };
+                downloadPDF(mockInvoiceForPDF, customers);
+            };
+
+            return (
+                <Modal show={show} onClose={onClose} title={invoice ? 'Edit Invoice' : 'Create Invoice'}>
+                    <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+                        
+                        {/* Customer & Dates Section */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="customer">Customer</label>
+                            <select 
+                                id="customer" 
+                                name="customer" 
+                                value={formData.customer} 
+                                onChange={handleChange} 
+                                required 
+                                className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                                <option value="" disabled>Select a Customer</option>
+                                {customers.map(cust => (
+                                    <option key={cust._id} value={cust._id}>{cust.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="issueDate">Issue Date</label>
+                                <input 
+                                    type="date" 
+                                    id="issueDate" 
+                                    name="issueDate" 
+                                    value={formData.issueDate} 
+                                    onChange={handleChange} 
+                                    required
+                                    className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="dueDate">Due Date</label>
+                                <input 
+                                    type="date" 
+                                    id="dueDate" 
+                                    name="dueDate" 
+                                    value={formData.dueDate} 
+                                    onChange={handleChange} 
+                                    required
+                                    className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Items Section */}
+                        <h4 className="text-lg font-semibold text-slate-200 pt-2">Items</h4>
+                        <div className="space-y-3">
+                            {formData.items.map((item, index) => (
+                                <div key={index} className="p-3 bg-slate-700 rounded-lg border border-slate-600 relative">
+                                    <div className="grid grid-cols-6 gap-3 items-end">
+                                        <div className="col-span-6 sm:col-span-3">
+                                            <label className="block text-xs font-medium text-slate-400 mb-1">Description</label>
+                                            <input 
+                                                type="text" 
+                                                name="description" 
+                                                value={item.description} 
+                                                onChange={(e) => handleItemChange(index, e)} 
+                                                placeholder="Service or Product"
+                                                required
+                                                className="w-full p-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200"
+                                            />
+                                        </div>
+                                        <div className="col-span-2 sm:col-span-1">
+                                            <label className="block text-xs font-medium text-slate-400 mb-1">Qty</label>
+                                            <input 
+                                                type="number" 
+                                                name="quantity" 
+                                                value={item.quantity} 
+                                                onChange={(e) => handleItemChange(index, e)} 
+                                                min="1"
+                                                required
+                                                className="w-full p-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200"
+                                            />
+                                        </div>
+                                        <div className="col-span-4 sm:col-span-2">
+                                            <label className="block text-xs font-medium text-slate-400 mb-1">Price</label>
+                                            <input 
+                                                type="number" 
+                                                name="price" 
+                                                value={item.price} 
+                                                onChange={(e) => handleItemChange(index, e)} 
+                                                min="0"
+                                                step="0.01"
+                                                required
+                                                className="w-full p-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-6 gap-3 mt-2 items-end">
+                                        <div className="col-span-3 sm:col-span-2">
+                                            <label className="block text-xs font-medium text-slate-400 mb-1">Tax (%)</label>
+                                            <input 
+                                                type="number" 
+                                                name="tax" 
+                                                value={item.tax} 
+                                                onChange={(e) => handleItemChange(index, e)} 
+                                                min="0"
+                                                max="100"
+                                                className="w-full p-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200"
+                                            />
+                                        </div>
+                                        <div className="col-span-3 sm:col-span-2">
+                                            <label className="block text-xs font-medium text-slate-400 mb-1">Discount</label>
+                                            <input 
+                                                type="number" 
+                                                name="discount" 
+                                                value={item.discount} 
+                                                onChange={(e) => handleItemChange(index, e)} 
+                                                min="0"
+                                                step="0.01"
+                                                className="w-full p-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200"
+                                            />
+                                        </div>
+                                        <div className="col-span-6 sm:col-span-2 text-right">
+                                            <p className="text-sm font-bold text-slate-200">Total: ${calculateInvoiceTotals([item]).totalAmount.toFixed(2)}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Remove Item Button */}
+                                    {formData.items.length > 1 && (
+                                        <button 
+                                            type="button" 
+                                            onClick={() => removeItem(index)} 
+                                            className="absolute top-2 right-2 text-red-400 hover:text-red-300"
+                                            title="Remove Item"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        <button 
+                            type="button" 
+                            onClick={addItem} 
+                            className="text-indigo-400 hover:text-indigo-300 text-sm font-medium flex items-center"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Add Item
+                        </button>
+                        
+                        {/* Totals Summary */}
+                        <div className="p-4 bg-slate-700 rounded-lg border border-indigo-500/50 space-y-1">
+                            <div className="flex justify-between text-sm text-slate-300">
+                                <span>Subtotal:</span>
+                                <span>${subTotal.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm text-slate-300">
+                                <span>Total Tax:</span>
+                                <span>+ ${totalTax.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm text-slate-300">
+                                <span>Total Discount:</span>
+                                <span>- ${totalDiscount.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-lg font-bold text-slate-100 pt-2 border-t border-slate-600">
+                                <span>Total Amount:</span>
+                                <span>${totalAmount.toFixed(2)}</span>
+                            </div>
+                        </div>
+
+                        {/* Status and Notes */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="status">Status</label>
+                            <select 
+                                id="status" 
+                                name="status" 
+                                value={formData.status} 
+                                onChange={handleChange} 
+                                required
+                                className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                                <option value="Unpaid">Unpaid</option>
+                                <option value="Paid">Paid</option>
+                                <option value="Overdue">Overdue</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="notes">Notes/Terms</label>
+                            <textarea 
+                                id="notes" 
+                                name="notes" 
+                                value={formData.notes} 
+                                onChange={handleChange} 
+                                rows="3"
+                                className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 resize-none focus:ring-indigo-500 focus:border-indigo-500"
+                            ></textarea>
+                        </div>
+
+                        {/* Form Actions */}
+                        <div className="flex justify-end space-x-3 pt-4">
+                            <button 
+                                type="button" 
+                                onClick={handleDownloadPDF} 
+                                className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+                            >
+                                Download Draft
+                            </button>
+                            <button 
+                                type="submit" 
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors"
+                            >
+                                {invoice ? 'Update Invoice' : 'Save Invoice'}
+                            </button>
+                        </div>
+                    </form>
+                </Modal>
+            );
+        };
+        
+        // --- Customer Form Component ---
+        const CustomerForm = ({ show, onClose, customer }) => {
+             const [formData, setFormData] = useState({ 
+                name: '', 
+                email: '', 
+                phone: '', 
+                address: ''
+            });
+
+            useEffect(() => {
+                if (customer) {
+                    setFormData({
+                        name: customer.name,
+                        email: customer.email,
+                        phone: customer.phone,
+                        address: customer.address
+                    });
+                } else {
+                    setFormData({ name: '', email: '', phone: '', address: '' });
+                }
+            }, [customer, show]);
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                try {
+                    if (customer) {
+                        await api.put(`/customers/${customer._id}`, formData);
+                    } else {
+                        await api.post('/customers', formData);
+                    }
+                    onClose();
+                } catch(error) {
+                    console.error("Failed to save customer", error);
+                    alert(`Error: Failed to save customer.`);
+                }
+            };
+            
+            return (
+                <Modal show={show} onClose={onClose} title={customer ? 'Edit Client' : 'Add New Client'}>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="name">Name</label>
+                            <input 
+                                type="text" 
+                                id="name" 
+                                name="name" 
+                                value={formData.name} 
+                                onChange={handleChange} 
+                                required
+                                className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="email">Email</label>
+                            <input 
+                                type="email" 
+                                id="email" 
+                                name="email" 
+                                value={formData.email} 
+                                onChange={handleChange} 
+                                required
+                                className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="phone">Phone</label>
+                            <input 
+                                type="tel" 
+                                id="phone" 
+                                name="phone" 
+                                value={formData.phone} 
+                                onChange={handleChange} 
+                                className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1" htmlFor="address">Address</label>
+                            <textarea 
+                                id="address" 
+                                name="address" 
+                                value={formData.address} 
+                                onChange={handleChange} 
+                                rows="2"
+                                className="w-full p-2.5 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 resize-none focus:ring-indigo-500 focus:border-indigo-500"
+                            ></textarea>
+                        </div>
+                        
+                        <div className="flex justify-end pt-2">
+                            <button 
+                                type="submit" 
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors"
+                            >
+                                {customer ? 'Update Client' : 'Save Client'}
+                            </button>
+                        </div>
+                    </form>
+                </Modal>
+            );
+        };
+        
+        // --- Clients Component (The requested fix is applied here) ---
+        const Clients = ({ highlightedId }) => {
+            const [customers, setCustomers] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showForm, setShowForm] = useState(false);
+            const [editingCustomer, setEditingCustomer] = useState(null);
+
+            useEffect(() => {
+                // Effect to scroll to and highlight the row
+                if (highlightedId) {
+                    const row = document.getElementById(`customer-${highlightedId}`);
+                    if (row) {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            }, [highlightedId, customers]);
+
+
+            const fetchCustomers = async () => {
+                setLoading(true);
+                try {
+                    const response = await api.get('/customers');
+                    setCustomers(response.data);
+                } catch (error) {
+                    console.error("Error fetching customers:", error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            useEffect(() => {
+                fetchCustomers();
+            }, []);
+            
+            const handleEdit = (customer) => {
+                setEditingCustomer(customer);
+                setShowForm(true);
+            };
+
+            const handleDelete = async (id) => {
+                if (window.confirm('Are you sure you want to delete this client? This will also delete any related invoices.')) {
+                    try {
+                        await api.delete(`/customers/${id}`);
+                        fetchCustomers();
+                    } catch (error) {
+                        console.error("Failed to delete client", error);
+                    }
+                }
+            };
+            
+            const handleFormClose = () => {
+                setShowForm(false);
+                setEditingCustomer(null);
+                fetchCustomers();
+            };
+
+            if (loading) return <Spinner />;
+
+            return (
+                <div className="p-4 sm:p-6 fade-in">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                        <h1 className="text-3xl font-bold text-slate-100 mb-4 sm:mb-0">Clients</h1>
+                        <button 
+                            onClick={() => { setEditingCustomer(null); setShowForm(true); }}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors w-full sm:w-auto"
+                        >
+                            Add New Client
+                        </button>
+                    </div>
+
+                    <CustomerForm 
+                        show={showForm} 
+                        onClose={handleFormClose} 
+                        customer={editingCustomer} 
+                    />
+
+                    {/* FIX APPLIED: Added overflow-x-auto here to enable horizontal scrolling for the table */}
+                    <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-700">
+                            <thead className="bg-slate-900/50">
+                                <tr>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Name</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Email</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Phone</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Address</th>
+                                    <th className="px-3 py-2 md:px-6 md:py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700">
+                                {customers.map(customer => (
+                                    <tr 
+                                        key={customer._id} 
+                                        id={`customer-${customer._id}`} 
+                                        className={`hover:bg-slate-700/50 transition-colors ${ 
+                                            customer._id === highlightedId ? 'highlight-row bg-indigo-700/50' : '' 
+                                        }`}
+                                    >
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap text-sm font-medium text-slate-200">{customer.name}</td>
+                                        <td className="px-3 py-2 md:px-6 md:py-4 text-sm text-slate-300 max-w-[250px] overflow-hidden">{customer.email}</td>
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap text-sm text-slate-300">{customer.phone}</td>
+                                        <td className="px-3 py-2 md:px-6 md:py-4 text-sm text-slate-300 max-w-[200px] overflow-hidden">{customer.address}</td>
+                                        
+                                        {/* Actions Column Implementation */}
+                                        <td className="px-3 py-2 md:px-6 md:py-4 whitespace-nowrap text-center text-sm font-medium">
+                                            <div className="flex items-center justify-center space-x-1 sm:space-x-2">
+                                                {/* Edit Icon */}
+                                                <button onClick={() => handleEdit(customer)} title="Edit Client" className="text-yellow-400 hover:text-yellow-300 action-icon">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2-2m-4 0l-4 4m6-6l4 4m-4-4l-4 4" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                    </svg>
+                                                </button>
+                                                {/* Delete Icon */}
+                                                <button onClick={() => handleDelete(customer._id)} title="Delete Client" className="text-red-400 hover:text-red-300 action-icon">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                        {/* End Actions Column */}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+        
+        // --- Settings Component ---
+        const Settings = ({ setActiveView }) => {
+            const { user, logout } = useAuth();
+            const [isDarkMode, setIsDarkMode] = useState(document.documentElement.classList.contains('dark'));
+            const [showAccountModal, setShowAccountModal] = useState(false);
+
+            const toggleTheme = () => {
+                if (isDarkMode) {
+                    document.documentElement.classList.remove('dark');
+                    document.documentElement.classList.add('light');
+                    document.body.style.backgroundColor = '#f1f5f9'; // slate-100
+                    document.body.style.color = '#0f172a'; // slate-900
+                } else {
+                    document.documentElement.classList.remove('light');
+                    document.documentElement.classList.add('dark');
+                    document.body.style.backgroundColor = '#0f172a'; // slate-900
+                    document.body.style.color = '#f8fafc'; // slate-50
+                }
+                setIsDarkMode(prev => !prev);
+            };
+
+            const handleLogout = () => {
+                logout();
+                setActiveView('login');
+            };
+
+            return (
+                <div className="p-4 sm:p-6 space-y-6 fade-in">
+                    <h1 className="text-3xl font-bold text-slate-100">Settings</h1>
+                    
+                    {/* User Profile Card */}
+                    <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 space-y-4">
+                        <h2 className="text-xl font-semibold text-slate-200 border-b border-slate-700 pb-2">Account Information</h2>
+                        
+                        <div className="flex items-center space-x-4">
+                            <div className="h-12 w-12 bg-indigo-600 rounded-full flex items-center justify-center text-lg font-bold text-white">
+                                {user?.name.charAt(0).toUpperCase() || 'D'}
+                            </div>
+                            <div>
+                                <p className="text-slate-100 font-medium">{user?.name}</p>
+                                <p className="text-slate-400 text-sm">{user?.email}</p>
+                            </div>
+                        </div>
+                        
+                        <button 
+                            onClick={() => setShowAccountModal(true)}
+                            className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View/Edit Account Details (Mock)
+                        </button>
+                    </div>
+
+                    {/* Preferences Card */}
+                    <div className="bg-slate-800 p-6 rounded-lg border border-slate-700 space-y-4">
+                        <h2 className="text-xl font-semibold text-slate-200 border-b border-slate-700 pb-2">Preferences</h2>
+                        
+                        <div className="flex items-center justify-between">
+                            <span className="text-slate-300">Dark Mode</span>
+                            <button
+                                onClick={toggleTheme}
+                                className={`relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-600'}`}
+                            >
+                                <span
+                                    aria-hidden="true"
+                                    className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200 ${isDarkMode ? 'translate-x-5' : 'translate-x-0'}`}
+                                ></span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {/* Logout Button */}
+                    <button 
+                        onClick={handleLogout}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors flex items-center justify-center"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H5a3 3 0 01-3-3v-10a3 3 0 013-3h5c1.33 0 3 1.5 3 3" />
+                        </svg>
+                        Logout
+                    </button>
+                    
+                    {/* Mock Account Modal */}
+                    <Modal show={showAccountModal} onClose={() => setShowAccountModal(false)} title="Account Details (Mock)">
+                        <p className="text-slate-300">This is a mock view for demonstration. In a real application, you could edit your profile here.</p>
+                        <div className="mt-4 p-3 bg-slate-700 rounded-lg space-y-2">
+                            <p className="text-slate-400">Name: <span className="text-slate-200 font-medium">{user?.name}</span></p>
+                            <p className="text-slate-400">Email: <span className="text-slate-200 font-medium">{user?.email}</span></p>
+                            <p className="text-slate-400">User ID: <span className="text-slate-200 text-xs">{user?._id}</span></p>
+                        </div>
+                    </Modal>
+                </div>
+            );
+        };
+
+        // --- Auth Screens ---
+        const LoginScreen = ({ setActiveView }) => {
+            const { login } = useAuth();
+            const [email, setEmail] = useState('demo@example.com'); // Default for easy demo
+            const [password, setPassword] = useState('password123'); // Default for easy demo
+            const [error, setError] = useState(null);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                setError(null);
+                const result = login(email, password);
+                if (result.success) {
+                    setActiveView('dashboard');
+                } else {
+                    setError(result.error);
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="w-full max-w-md p-8 space-y-6 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 fade-in">
+                        <h2 className="text-3xl font-bold text-center text-slate-100">Smart Invoice & Billing</h2>
+                        <p className="text-center text-slate-400">Sign in to your account</p>
+                        {error && <div className="p-3 text-sm font-medium text-red-400 bg-red-500/20 rounded-lg">{error}</div>}
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label htmlFor="email-address" className="sr-only">Email address</label>
+                                <input
+                                    id="email-address"
+                                    name="email"
+                                    type="email"
+                                    autoComplete="email"
+                                    required
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="relative block w-full px-3 py-2 border border-slate-600 placeholder-slate-400 text-slate-200 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-slate-700/50"
+                                    placeholder="Email address"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="password" className="sr-only">Password</label>
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    autoComplete="current-password"
+                                    required
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="relative block w-full px-3 py-2 border border-slate-600 placeholder-slate-400 text-slate-200 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-slate-700/50"
+                                    placeholder="Password"
+                                />
+                            </div>
+                            <div>
+                                <button
+                                    type="submit"
+                                    className="w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                                >
+                                    Sign in
+                                </button>
+                            </div>
+                        </form>
+                        <div className="text-center">
+                            <p className="text-sm text-slate-400">
+                                Don't have an account? {' '}
+                                <button 
+                                    onClick={() => setActiveView('register')} 
+                                    className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
+                                >
+                                    Sign up
+                                </button>
+                            </p>
+                            <p className="text-xs text-slate-500 mt-2">
+                                (Hint: Use 'demo@example.com' and 'password123' to quickly log in)
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const RegisterScreen = ({ setActiveView }) => {
+            const { register } = useAuth();
+            const [name, setName] = useState('');
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState(null);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                setError(null);
+                const result = register(name, email, password);
+                if (result.success) {
+                    setActiveView('dashboard');
+                } else {
+                    setError(result.error);
+                }
+            };
+            
+            return (
+                <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="w-full max-w-md p-8 space-y-6 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 fade-in">
+                        <h2 className="text-3xl font-bold text-center text-slate-100">Create Account</h2>
+                        <p className="text-center text-slate-400">Start managing your invoices now</p>
+                        {error && <div className="p-3 text-sm font-medium text-red-400 bg-red-500/20 rounded-lg">{error}</div>}
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label htmlFor="reg-name" className="sr-only">Full Name</label>
+                                <input
+                                    id="reg-name"
+                                    name="name"
+                                    type="text"
+                                    autoComplete="name"
+                                    required
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    className="relative block w-full px-3 py-2 border border-slate-600 placeholder-slate-400 text-slate-200 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-slate-700/50"
+                                    placeholder="Full Name"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="reg-email" className="sr-only">Email address</label>
+                                <input
+                                    id="reg-email"
+                                    name="email"
+                                    type="email"
+                                    autoComplete="email"
+                                    required
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="relative block w-full px-3 py-2 border border-slate-600 placeholder-slate-400 text-slate-200 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-slate-700/50"
+                                    placeholder="Email address"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="reg-password" className="sr-only">Password</label>
+                                <input
+                                    id="reg-password"
+                                    name="password"
+                                    type="password"
+                                    autoComplete="new-password"
+                                    required
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="relative block w-full px-3 py-2 border border-slate-600 placeholder-slate-400 text-slate-200 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-slate-700/50"
+                                    placeholder="Password"
+                                />
+                            </div>
+                            <div>
+                                <button
+                                    type="submit"
+                                    className="w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                                >
+                                    Register
+                                </button>
+                            </div>
+                        </form>
+                        <div className="text-center">
+                            <p className="text-sm text-slate-400">
+                                Already have an account? {' '}
+                                <button 
+                                    onClick={() => setActiveView('login')} 
+                                    className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
+                                >
+                                    Sign in
+                                </button>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Layout/Root Component ---
+        const App = () => {
+            const { isAuthenticated, user } = useAuth();
+            const [activeView, setActiveView] = useState(isAuthenticated ? 'dashboard' : 'login');
+            const [sidebarOpen, setSidebarOpen] = useState(false);
+            const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+            const [showSearchModal, setShowSearchModal] = useState(false);
+            const [highlightedId, setHighlightedId] = useState(null); // State for highlighting a row after search
+            
+            const handleNavigation = (view) => {
+                setActiveView(view);
+                setSidebarOpen(false); // Close sidebar on nav click
+            };
+            
+            const handleSearchChange = (e) => {
+                const query = e.target.value;
+                setGlobalSearchQuery(query);
+                // Show the modal instantly as the user types
+                setShowSearchModal(true); 
+            };
+            
+            // Effect to handle Escape key for search modal and focus
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (e.key === 'Escape' && showSearchModal) {
+                        setShowSearchModal(false);
+                        setGlobalSearchQuery('');
+                    } else if (e.key === '/' && activeView !== 'login' && activeView !== 'register' && !showSearchModal) {
+                        // Focus on search input when '/' is pressed, if not on auth screen
+                        e.preventDefault();
+                        const searchInput = document.getElementById('global-search');
+                        if (searchInput) {
+                            searchInput.focus();
+                        }
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [showSearchModal, activeView]);
+
+
+            const renderView = () => {
+                switch (activeView) {
+                    case 'dashboard':
+                        return <Dashboard />;
+                    case 'invoices':
+                        return <Invoices highlightedId={highlightedId} />;
+                    case 'clients':
+                        return <Clients highlightedId={highlightedId} />;
+                    case 'settings':
+                        return <Settings setActiveView={setActiveView} />;
+                    case 'login':
+                        return <LoginScreen setActiveView={setActiveView} />;
+                    case 'register':
+                        return <RegisterScreen setActiveView={setActiveView} />;
+                    default:
+                        return <Dashboard />;
+                }
+            };
+            
+            const NavItem = ({ view, icon, label }) => (
+                <button
+                    onClick={() => handleNavigation(view)}
+                    className={`flex items-center space-x-3 p-3 rounded-lg w-full text-left transition-colors ${
+                        activeView === view 
+                            ? 'bg-indigo-600 text-white shadow-lg' 
+                            : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                    }`}
+                >
+                    {icon}
+                    <span>{label}</span>
+                </button>
+            );
+
+            // If not authenticated, only show the auth screens
+            if (!isAuthenticated && activeView !== 'register') {
+                return <LoginScreen setActiveView={setActiveView} />;
+            }
+            if (!isAuthenticated && activeView === 'register') {
+                return <RegisterScreen setActiveView={setActiveView} />;
+            }
+
+            // Only render the full dashboard layout if authenticated
+            return (
+                <div className="flex h-screen overflow-hidden">
+                    
+                    {/* --- Sidebar (Mobile Backdrop) --- */}
+                    <div 
+                        className={`fixed inset-0 bg-black bg-opacity-75 z-40 lg:hidden ${sidebarOpen ? '' : 'hidden'}`}
+                        onClick={() => setSidebarOpen(false)}
+                    ></div>
+
+                    {/* --- Sidebar (Desktop & Mobile) --- */}
+                    <div className={`flex flex-col w-64 bg-slate-900 border-r border-slate-700 fixed inset-y-0 left-0 transform transition duration-200 ease-in-out z-50 lg:relative lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                        
+                        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+                            <h1 className="text-xl font-bold text-indigo-400">SmartInvoice</h1>
+                            <button 
+                                onClick={() => setSidebarOpen(false)} 
+                                className="text-slate-400 hover:text-white lg:hidden"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        
+                        <nav className="flex-grow p-4 space-y-2 overflow-y-auto">
+                            <NavItem 
+                                view="dashboard" 
+                                label="Dashboard" 
+                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>}
+                            />
+                            <NavItem 
+                                view="invoices" 
+                                label="Invoices" 
+                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
+                            />
+                            <NavItem 
+                                view="clients" 
+                                label="Clients" 
+                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20v-2h2m-2 2h-2M13 12h.01M7 12h.01M7 16h.01M19 16h.01M9 10h.01M7 14h.01m10-4h.01m-4 4h.01m0 4h.01m0 0a1 1 0 001 1h2a1 1 0 001-1v-3a1 1 0 00-1-1h-2a1 1 0 00-1 1v3zm-3 4H7a1 1 0 01-1-1v-3a1 1 0 011-1h2a1 1 0 011 1v3z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 18V5M2 7h20" /></svg>}
+                            />
+                            <NavItem 
+                                view="settings" 
+                                label="Settings" 
+                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.82 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.82 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.82-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.82-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+                            />
+                        </nav>
+                        
+                        {/* User Profile Footer */}
+                        <div className="p-4 border-t border-slate-700">
+                            <div className="flex items-center space-x-3 text-slate-300">
+                                <div className="h-8 w-8 bg-indigo-600 rounded-full flex items-center justify-center text-xs font-bold text-white">
+                                    {user?.name.charAt(0).toUpperCase() || 'D'}
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium">{user?.name}</p>
+                                    <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* --- Main Content Area --- */}
+                    <div className="flex flex-col flex-1 overflow-y-auto">
+                        
+                        {/* --- Top Bar / Header --- */}
+                        <header className="sticky top-0 z-30 bg-slate-800 border-b border-slate-700 shadow-md p-4 flex items-center justify-between">
+                            
+                            {/* Left side: Mobile menu button & Search */}
+                            <div className="flex items-center space-x-4 w-full">
+                                <button 
+                                    onClick={() => setSidebarOpen(true)} 
+                                    className="text-slate-400 hover:text-white lg:hidden"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                                    </svg>
+                                </button>
+                                
+                                <div className="relative w-full max-w-lg">
+                                    <input 
+                                        id="global-search"
+                                        type="text" 
+                                        placeholder="Search Invoices or Clients..." 
+                                        value={globalSearchQuery}
+                                        onChange={handleSearchChange}
+                                        onFocus={() => setShowSearchModal(true)}
+                                        className="w-full p-2 pl-10 text-sm bg-slate-900 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                    />
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                    </div>
+                                    <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-slate-500 pointer-events-none">
+                                        /
+                                    </span>
+                                </div>
+                            </div>
+
+                        </header>
+
+                        {/* --- Content --- */}
+                        <main className="flex-1">
+                            {/* Back button for secondary views on mobile/small screens */}
+                            {activeView !== 'dashboard' && activeView !== 'login' && activeView !== 'register' && (
+                                <div className="p-4 lg:p-6 lg:mt-0 lg:hidden">
+                                    <button 
+                                        onClick={() => handleNavigation('dashboard')}
+                                        className="text-indigo-400 hover:text-indigo-300 flex items-center text-sm font-medium"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                        </svg>
+                                        Back to Dashboard
+                                    </button>
+                                </div>
+                            )}
+                            {renderView()}
+                           
+                            {/* Search Modal Integration - UPDATED */}
+                            <SearchModal 
+                                // Modal only shows if the showSearchModal flag is true AND there is a query
+                                show={showSearchModal && !!globalSearchQuery} 
+                                onClose={() => {
+                                    // When closing the modal, only hide the modal flag. Do not clear the query.
+                                    setShowSearchModal(false);
+                                }} 
+                                searchQuery={globalSearchQuery}
+                                setActiveView={handleNavigation} // Use handleNavigation
+                                setHighlightedId={setHighlightedId} 
+                            />
+                        </main>
+                    </div>
+                </div>
+            );
+        };
+
+        const Root = () => (
+            <AuthProvider>
+                <App />
+            </AuthProvider>
+        );
+
+        ReactDOM.render(<Root />, document.getElementById('root'));
+    </script>
+</body>
+</html>
